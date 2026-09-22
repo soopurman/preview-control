@@ -1,0 +1,204 @@
+name: Build and manage preview environments
+
+on:
+  repository_dispatch:
+    types: [preview]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service that changed (a or b)
+        required: true
+        type: choice
+        options: [a, b]
+      ref:
+        description: Branch to resolve
+        required: true
+        type: string
+      lifecycle:
+        description: Usually upsert; use delete only for recovery
+        required: true
+        default: upsert
+        type: choice
+        options: [upsert, delete]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      lifecycle: ${{ steps.resolve.outputs.lifecycle }}
+      preview_id: ${{ steps.resolve.outputs.preview_id }}
+      stack_name: ${{ steps.resolve.outputs.stack_name }}
+      is_baseline: ${{ steps.resolve.outputs.is_baseline }}
+      service_a_ref: ${{ steps.resolve.outputs.service_a_ref }}
+      service_b_ref: ${{ steps.resolve.outputs.service_b_ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        name: Resolve feature group and current refs
+        env:
+          GH_TOKEN: ${{ secrets.PREVIEW_DISPATCH_TOKEN }}
+          SERVICE_A_REPOSITORY: ${{ vars.SERVICE_A_REPOSITORY }}
+          SERVICE_B_REPOSITORY: ${{ vars.SERVICE_B_REPOSITORY }}
+        run: python3 scripts/resolve_preview.py
+
+  deploy:
+    needs: [resolve, test]
+    if: needs.resolve.outputs.lifecycle != 'destroy' && needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: preview-${{ needs.resolve.outputs.preview_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Configure AWS credentials through OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+      - name: Install CDK dependencies and ensure shared platform exists
+        working-directory: infra
+        run: |
+          pip install -r requirements.txt
+          npx --yes aws-cdk deploy PreviewPlatform --require-approval never -c github_subject=${{ vars.GITHUB_OIDC_SUBJECT }}
+      - name: Create a database seed snapshot for this preview
+        id: snapshot
+        if: needs.resolve.outputs.is_baseline != 'true'
+        env:
+          PREVIEW_ID: ${{ needs.resolve.outputs.preview_id }}
+        run: |
+          BASELINE_DB=$(aws cloudformation describe-stacks --stack-name BaselineEnvironment \
+            --query "Stacks[0].Outputs[?OutputKey=='BaselineDatabaseIdentifier'].OutputValue" --output text)
+          test -n "$BASELINE_DB" && test "$BASELINE_DB" != "None" || {
+            echo "BaselineEnvironment is required before previews. Push main in either service first." >&2
+            exit 1
+          }
+          SNAPSHOT_ID="preview-seed-${PREVIEW_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          aws rds create-db-snapshot --db-instance-identifier "$BASELINE_DB" --db-snapshot-identifier "$SNAPSHOT_ID"
+          aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAPSHOT_ID"
+          echo "snapshot_id=$SNAPSHOT_ID" >> "$GITHUB_OUTPUT"
+      - name: Check out exact service refs
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SERVICE_A_REPOSITORY }}
+          ref: ${{ needs.resolve.outputs.service_a_ref }}
+          token: ${{ secrets.PREVIEW_DISPATCH_TOKEN }}
+          path: build/service-a
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SERVICE_B_REPOSITORY }}
+          ref: ${{ needs.resolve.outputs.service_b_ref }}
+          token: ${{ secrets.PREVIEW_DISPATCH_TOKEN }}
+          path: build/service-b
+      - name: Build and push both service images
+        id: images
+        env:
+          PREVIEW_ID: ${{ needs.resolve.outputs.preview_id }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="$ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com"
+          TAG="$PREVIEW_ID-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+          docker build --tag "$REGISTRY/preview-catalog-service:$TAG" build/service-a
+          docker build --tag "$REGISTRY/preview-orders-service:$TAG" build/service-b
+          docker push "$REGISTRY/preview-catalog-service:$TAG"
+          docker push "$REGISTRY/preview-orders-service:$TAG"
+          echo "service_a_image=$REGISTRY/preview-catalog-service:$TAG" >> "$GITHUB_OUTPUT"
+          echo "service_b_image=$REGISTRY/preview-orders-service:$TAG" >> "$GITHUB_OUTPUT"
+      - name: Deploy isolated environment
+        working-directory: infra
+        run: |
+          npx --yes aws-cdk deploy "${{ needs.resolve.outputs.stack_name }}" --require-approval never \
+            -c github_subject=${{ vars.GITHUB_OIDC_SUBJECT }} \
+            -c baseline=${{ needs.resolve.outputs.is_baseline }} \
+            -c preview_id=${{ needs.resolve.outputs.preview_id }} \
+            -c snapshot_identifier=${{ steps.snapshot.outputs.snapshot_id }} \
+            -c service_a_image=${{ steps.images.outputs.service_a_image }} \
+            -c service_b_image=${{ steps.images.outputs.service_b_image }}
+      - name: Verify the deployed environment and restored seed data
+        env:
+          STACK_NAME: ${{ needs.resolve.outputs.stack_name }}
+        run: |
+          PREVIEW_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='PreviewUrl'].OutputValue" --output text)
+          curl --fail --retry 30 --retry-connrefused --retry-delay 5 "$PREVIEW_URL/a/health"
+          curl --fail --retry 30 --retry-connrefused --retry-delay 5 "$PREVIEW_URL/b/health"
+          curl --fail --silent --show-error "$PREVIEW_URL/a/items" | jq --exit-status 'length > 0' >/dev/null
+      - name: Delete the temporary source snapshot
+        if: always() && steps.snapshot.outputs.snapshot_id != ''
+        run: aws rds delete-db-snapshot --db-snapshot-identifier "${{ steps.snapshot.outputs.snapshot_id }}"
+
+  destroy:
+    needs: resolve
+    if: needs.resolve.outputs.lifecycle == 'destroy'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: preview-${{ needs.resolve.outputs.preview_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+      - name: Destroy preview stack if it exists
+        working-directory: infra
+        run: |
+          pip install -r requirements.txt
+          if aws cloudformation describe-stacks --stack-name "${{ needs.resolve.outputs.stack_name }}" >/dev/null 2>&1; then
+            npx --yes aws-cdk destroy "${{ needs.resolve.outputs.stack_name }}" --force \
+              -c github_repository=${{ github.repository }} \
+              -c preview_id=${{ needs.resolve.outputs.preview_id }} \
+              -c service_a_image=placeholder.invalid/a:deleted \
+              -c service_b_image=placeholder.invalid/b:deleted
+          else
+            echo "Stack already absent; nothing to destroy."
+          fi
+
+  test:
+    needs: resolve
+    if: needs.resolve.outputs.lifecycle != 'destroy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SERVICE_A_REPOSITORY }}
+          ref: ${{ needs.resolve.outputs.service_a_ref }}
+          token: ${{ secrets.PREVIEW_DISPATCH_TOKEN }}
+          path: build/service-a
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SERVICE_B_REPOSITORY }}
+          ref: ${{ needs.resolve.outputs.service_b_ref }}
+          token: ${{ secrets.PREVIEW_DISPATCH_TOKEN }}
+          path: build/service-b
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start both containerized services with PostgreSQL
+        run: |
+          docker compose -f build/service-a/docker-compose.yml up --build --detach
+          docker compose -f build/service-b/docker-compose.yml up --build --detach
+      - name: Wait for both APIs
+        run: |
+          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:8000/health
+          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:8001/health
+      - name: Exercise every CRUD endpoint for both selected refs
+        run: |
+          pip install -r build/service-a/requirements-test.txt
+          API_BASE_URL=http://localhost:8000 pytest -q build/service-a/tests
+          API_BASE_URL=http://localhost:8001 pytest -q build/service-b/tests
+      - if: always()
+        name: Stop test dependencies
+        run: |
+          docker compose -f build/service-a/docker-compose.yml down --volumes
+          docker compose -f build/service-b/docker-compose.yml down --volumes
