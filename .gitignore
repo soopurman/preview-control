@@ -3,3 +3,6 @@ cdk.out/
 cdk.context.json
 __pycache__/
 *.py[cod]
+infra/.venv/
+infra/cdk.out/
+**/__pycache__/

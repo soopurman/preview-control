@@ -8,10 +8,8 @@ Delete or merge a feature branch. The coordinator checks both repositories and d
 
 ```bash
 cd preview-control
-python3 -m venv infra/.venv
-source infra/.venv/bin/activate
-pip install -r infra/requirements.txt
-export OIDC_SUBJECT='repo:OWNER@OWNER_ID/preview-control@REPOSITORY_ID:ref:refs/heads/main'
+# The bootstrap script derived this once; no manually copied OIDC subject is needed here.
+export OIDC_SUBJECT="$(gh variable get OIDC_SUBJECT --repo OWNER/preview-control)"
 bash scripts/destroy_all.sh --confirm
 ```
 

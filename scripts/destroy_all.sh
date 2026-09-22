@@ -10,14 +10,22 @@ fi
 
 AWS_REGION="${AWS_REGION:-us-east-2}"
 export AWS_REGION
-cd "$(dirname "$0")/../infra"
+project_root=$(cd "$(dirname "$0")/.." && pwd)
+infra_dir="$project_root/infra"
+venv_dir="$infra_dir/.venv"
+if [[ ! -x "$venv_dir/bin/python" ]]; then
+  python3 -m venv "$venv_dir"
+  "$venv_dir/bin/python" -m pip install --quiet -r "$infra_dir/requirements.txt"
+fi
+export PATH="$venv_dir/bin:$PATH"
+cd "$infra_dir"
 
 destroy_stack() {
   local stack_name="$1"
   shift
   if aws cloudformation describe-stacks --stack-name "$stack_name" >/dev/null 2>&1; then
     echo "Destroying $stack_name"
-    npx --yes aws-cdk destroy "$stack_name" --force "$@"
+    npx --yes aws-cdk@2.219.0 destroy "$stack_name" --force "$@"
   fi
 }
 
