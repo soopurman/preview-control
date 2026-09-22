@@ -219,6 +219,12 @@ class PreviewEnvironmentStack(Stack):
         path_prefix: str,
     ) -> ecs.FargateService:
         task = ecs.FargateTaskDefinition(self, f"{logical_name}Task", cpu=256, memory_limit_mib=512)
+        # The application itself has no AWS API permissions. Its execution role needs the
+        # standard ECR, CloudWatch Logs, and Secrets Manager bootstrap permissions before
+        # Fargate can pull a private image and inject the database password.
+        task.execution_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AmazonECSTaskExecutionRolePolicy")
+        )
         container = task.add_container(
             "Api",
             image=ecs.ContainerImage.from_registry(image),
