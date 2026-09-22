@@ -66,7 +66,7 @@ jobs:
         working-directory: infra
         run: |
           pip install -r requirements.txt
-          npx --yes aws-cdk deploy PreviewPlatform --require-approval never -c github_subject=${{ vars.GITHUB_OIDC_SUBJECT }}
+          npx --yes aws-cdk deploy PreviewPlatform --require-approval never -c github_subject=${{ vars.OIDC_SUBJECT }}
       - name: Create a database seed snapshot for this preview
         id: snapshot
         if: needs.resolve.outputs.is_baseline != 'true'
@@ -115,7 +115,7 @@ jobs:
         working-directory: infra
         run: |
           npx --yes aws-cdk deploy "${{ needs.resolve.outputs.stack_name }}" --require-approval never \
-            -c github_subject=${{ vars.GITHUB_OIDC_SUBJECT }} \
+            -c github_subject=${{ vars.OIDC_SUBJECT }} \
             -c baseline=${{ needs.resolve.outputs.is_baseline }} \
             -c preview_id=${{ needs.resolve.outputs.preview_id }} \
             -c snapshot_identifier=${{ steps.snapshot.outputs.snapshot_id }} \

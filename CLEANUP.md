@@ -11,7 +11,7 @@ cd preview-control
 python3 -m venv infra/.venv
 source infra/.venv/bin/activate
 pip install -r infra/requirements.txt
-export GITHUB_OIDC_SUBJECT='repo:OWNER@OWNER_ID/preview-control@REPOSITORY_ID:ref:refs/heads/main'
+export OIDC_SUBJECT='repo:OWNER@OWNER_ID/preview-control@REPOSITORY_ID:ref:refs/heads/main'
 bash scripts/destroy_all.sh --confirm
 ```
 

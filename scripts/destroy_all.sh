@@ -50,5 +50,5 @@ for snapshot in $snapshots; do
   fi
 done
 
-destroy_stack PreviewPlatform -c github_subject="${GITHUB_OIDC_SUBJECT:-repo:OWNER/preview-control:ref:refs/heads/main}"
+destroy_stack PreviewPlatform -c github_subject="${OIDC_SUBJECT:-repo:OWNER/preview-control:ref:refs/heads/main}"
 echo "Cleanup request complete. Check CloudFormation and RDS once deletions finish."

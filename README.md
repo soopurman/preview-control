@@ -10,7 +10,7 @@ The AWS CDK project and coordinator workflow for ephemeral FastAPI preview envir
 
 1. Set `SERVICE_A_REPOSITORY` and `SERVICE_B_REPOSITORY` Actions variables to the two repository names.
 2. Set `PREVIEW_DISPATCH_TOKEN` as a fine-grained PAT secret in all three repos: control-repo contents read/write, service-repo contents read.
-3. Set `GITHUB_OIDC_SUBJECT` in this repo to the exact immutable GitHub OIDC subject for its `main` branch.
+3. Set `OIDC_SUBJECT` in this repo to the exact immutable GitHub OIDC subject for its `main` branch.
 4. Bootstrap CDK and deploy `PreviewPlatform` locally once. Set its `GitHubActionsRoleArn` output as Actions secret `AWS_DEPLOY_ROLE_ARN`.
 5. Push `main` to create the baseline; then push `fg/demo` in one or both service repositories.
 
