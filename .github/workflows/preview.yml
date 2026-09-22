@@ -127,8 +127,8 @@ jobs:
         run: |
           PREVIEW_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='PreviewUrl'].OutputValue" --output text)
-          curl --fail --retry 30 --retry-connrefused --retry-delay 5 "$PREVIEW_URL/a/health"
-          curl --fail --retry 30 --retry-connrefused --retry-delay 5 "$PREVIEW_URL/b/health"
+          curl --fail --retry 30 --retry-all-errors --retry-delay 5 "$PREVIEW_URL/a/health"
+          curl --fail --retry 30 --retry-all-errors --retry-delay 5 "$PREVIEW_URL/b/health"
           curl --fail --silent --show-error "$PREVIEW_URL/a/items" | jq --exit-status 'length > 0' >/dev/null
       - name: Delete the temporary source snapshot
         if: always() && steps.snapshot.outputs.snapshot_id != ''
@@ -190,8 +190,8 @@ jobs:
           docker compose -f build/service-b/docker-compose.yml up --build --detach
       - name: Wait for both APIs
         run: |
-          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:8000/health
-          curl --fail --retry 30 --retry-connrefused --retry-delay 2 http://localhost:8001/health
+          curl --fail --retry 30 --retry-all-errors --retry-delay 2 http://localhost:8000/health
+          curl --fail --retry 30 --retry-all-errors --retry-delay 2 http://localhost:8001/health
       - name: Exercise every CRUD endpoint for both selected refs
         run: |
           pip install -r build/service-a/requirements-test.txt
