@@ -198,7 +198,15 @@ class PreviewEnvironmentStack(Stack):
         )
         listener.add_action(
             "NotFound",
-            action=elbv2.ListenerAction.fixed_response(404, content_type="application/json", message_body='{"detail":"use /a or /b"}'),
+            action=elbv2.ListenerAction.fixed_response(
+                404,
+                content_type="application/json",
+                message_body=(
+                    '{"detail":"Choose a service path.",'
+                    '"catalog":"/a (then /a/items, /a/docs, or /a/health)",'
+                    '"orders":"/b (then /b/items, /b/docs, or /b/health)"}'
+                ),
+            ),
         )
 
         CfnOutput(self, "PreviewUrl", value=f"http://{load_balancer.load_balancer_dns_name}")
