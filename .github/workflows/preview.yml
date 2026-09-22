@@ -62,11 +62,11 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-2
-      - name: Install CDK dependencies and ensure shared platform exists
+      - name: Install CDK dependencies and verify shared platform exists
         working-directory: infra
         run: |
           pip install -r requirements.txt
-          npx --yes aws-cdk deploy PreviewPlatform --require-approval never -c github_subject=${{ vars.OIDC_SUBJECT }}
+          aws cloudformation describe-stacks --stack-name PreviewPlatform >/dev/null
       - name: Create a database seed snapshot for this preview
         id: snapshot
         if: needs.resolve.outputs.is_baseline != 'true'
