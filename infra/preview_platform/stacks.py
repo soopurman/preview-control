@@ -132,7 +132,9 @@ class PreviewEnvironmentStack(Stack):
         database_sg.add_ingress_rule(app_sg, ec2.Port.tcp(5432), "API tasks to PostgreSQL")
 
         database_config = dict(
-            engine=rds.DatabaseInstanceEngine.postgres(version=rds.PostgresEngineVersion.VER_16_6),
+            # Pin to a version currently offered in us-east-2; newer patch releases can be
+            # selected when the CDK library is upgraded.
+            engine=rds.DatabaseInstanceEngine.postgres(version=rds.PostgresEngineVersion.VER_16_9),
             vpc=platform.vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             publicly_accessible=False,
