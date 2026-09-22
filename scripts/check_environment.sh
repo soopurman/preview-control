@@ -58,8 +58,21 @@ preview_url=$(aws cloudformation describe-stacks --stack-name "$stack_name" \
   --query "Stacks[0].Outputs[?OutputKey=='PreviewUrl'].OutputValue" --output text)
 [[ -n "$preview_url" && "$preview_url" != "None" ]] || { echo "PreviewUrl output is missing." >&2; exit 1; }
 
-curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 5 "$preview_url/a/health" | jq .
-curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 5 "$preview_url/b/health" | jq .
+get_with_retry() {
+  local url="$1"
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl --fail --silent --show-error "$url"; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "API never became ready: $url" >&2
+  return 1
+}
+
+get_with_retry "$preview_url/a/health" | jq .
+get_with_retry "$preview_url/b/health" | jq .
 curl --fail --silent --show-error "$preview_url/a/items" | jq --exit-status 'type == "array" and length > 0' >/dev/null
 curl --fail --silent --show-error "$preview_url/b/items" | jq --exit-status 'type == "array" and length > 0' >/dev/null
 

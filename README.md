@@ -6,6 +6,66 @@ The AWS CDK project and coordinator workflow for ephemeral FastAPI preview envir
 
 `main` maintains `BaselineEnvironment`. Every preview snapshots its baseline PostgreSQL RDS instance immediately before deployment and restores a private, independent RDS instance from it. The source snapshot is deleted after restore and the preview database is deleted with its stack.
 
+## Getting started and prerequisites
+
+The scripts are POSIX-host friendly Bash and have been written to work on current Fedora and
+macOS. They do not depend on Linux-only utilities or a global CDK installation.
+
+### Local tools
+
+Install these before running bootstrap or any operator script:
+
+| Tool | Why it is needed | Recommended version |
+| --- | --- | --- |
+| Git | Clone and push the three repositories | Current Git 2.x |
+| Bash | Runs the supplied scripts | Bash 3.2+ (the macOS built-in Bash is sufficient) |
+| Python | Creates the isolated CDK virtual environment | Python 3.10+; 3.12 recommended, including `venv`/`pip` |
+| Node.js/npm | `npx` obtains the pinned CDK CLI | Node 20 LTS+ |
+| AWS CLI | Authenticates and queries/deploys AWS resources | AWS CLI v2 |
+| GitHub CLI | Configures repository variables/secrets and watches Actions | Current `gh` |
+| `jq` and `curl` | Parses API/Actions data and runs smoke tests | Current versions |
+
+Docker Engine plus Docker Compose v2 are **only** required when running the FastAPI services
+and their tests locally. They are not required for `bootstrap.sh`: the coordinator tests use
+GitHub-hosted runners, which already provide Docker.
+
+On Fedora, the distribution packages normally cover the required tools (for example,
+`sudo dnf install git gh awscli jq python3 nodejs`). Install and enable Docker/Compose separately
+if you want local container tests. On macOS, Homebrew provides the CLI prerequisites:
+
+```bash
+brew install git gh awscli jq python@3.12 node@20
+# Optional, for local service containers and tests:
+brew install --cask docker
+```
+
+Start Docker Desktop once after installing it on macOS. On either OS, confirm the essentials:
+
+```bash
+git --version
+python3 --version
+node --version
+aws --version
+gh --version
+jq --version
+```
+
+### Accounts and access
+
+1. Create or select an AWS account and region with the normal ECS, ECR, RDS, VPC,
+   CloudFormation, IAM, and CloudWatch service quotas available. The scripts default to
+   `us-east-2`, where this project’s RDS engine version has been validated.
+2. Authenticate the AWS CLI before bootstrap. AWS IAM Identity Center/SSO is preferred for a
+   human operator (`aws configure sso`, then `aws sso login`); a temporary IAM role/profile also
+   works. The initial bootstrap identity needs permission to create this take-home’s resources,
+   including the GitHub OIDC provider and deployment role. Do not use a production account.
+3. Authenticate the GitHub CLI with an account that has **admin** access to all three repositories:
+   `gh auth login`. For private repositories, a classic token with the `repo` scope is the simplest
+   option. It must be able to write Actions variables and secrets and dispatch/read workflows.
+4. Push the submitted catalog, orders, and coordinator source to three repositories before
+   bootstrap. The scripts configure their cross-repository wiring; they intentionally do not
+   create repositories or overwrite source history.
+
 ## Repeatable setup from a fresh account
 
 The source code must first exist in three GitHub repositories: this coordinator plus the
