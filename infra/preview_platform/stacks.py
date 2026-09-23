@@ -213,6 +213,10 @@ class PreviewEnvironmentStack(Stack):
         CfnOutput(self, "CatalogUrl", value=f"http://{load_balancer.load_balancer_dns_name}/a/health")
         CfnOutput(self, "OrdersUrl", value=f"http://{load_balancer.load_balancer_dns_name}/b/health")
         CfnOutput(self, "DatabaseEndpoint", value=database.instance_endpoint.hostname)
+        if not is_baseline and snapshot_identifier:
+            # Keep the original seed identifier in the stack template/output. Subsequent image
+            # updates reuse this literal instead of replacing the already-isolated RDS instance.
+            CfnOutput(self, "SeedSnapshotIdentifier", value=snapshot_identifier)
         if is_baseline:
             CfnOutput(self, "BaselineDatabaseIdentifier", value=database.instance_identifier)
 

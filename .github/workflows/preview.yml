@@ -72,7 +72,27 @@ jobs:
         if: needs.resolve.outputs.is_baseline != 'true'
         env:
           PREVIEW_ID: ${{ needs.resolve.outputs.preview_id }}
+          STACK_NAME: ${{ needs.resolve.outputs.stack_name }}
         run: |
+          # A preview gets a baseline snapshot only when its stack is first created. On later
+          # image-only updates, reusing the original literal keeps CloudFormation from replacing
+          # the existing RDS instance (and preserves data written during the preview).
+          EXISTING_SNAPSHOT=""
+          if aws cloudformation describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
+            EXISTING_SNAPSHOT=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+              --query "Stacks[0].Outputs[?OutputKey=='SeedSnapshotIdentifier'].OutputValue" --output text)
+            if [[ -z "$EXISTING_SNAPSHOT" || "$EXISTING_SNAPSHOT" == "None" ]]; then
+              EXISTING_SNAPSHOT=$(aws cloudformation get-template --stack-name "$STACK_NAME" --output json \
+                | jq -r '.TemplateBody' \
+                | jq -r '.Resources[] | select(.Type=="AWS::RDS::DBInstance") | .Properties.DBSnapshotIdentifier // empty')
+            fi
+          fi
+          if [[ -n "$EXISTING_SNAPSHOT" && "$EXISTING_SNAPSHOT" != "None" ]]; then
+            echo "Reusing existing preview database seed identifier: $EXISTING_SNAPSHOT"
+            echo "snapshot_id=$EXISTING_SNAPSHOT" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           BASELINE_DB=$(aws cloudformation describe-stacks --stack-name BaselineEnvironment \
             --query "Stacks[0].Outputs[?OutputKey=='BaselineDatabaseIdentifier'].OutputValue" --output text)
           test -n "$BASELINE_DB" && test "$BASELINE_DB" != "None" || {
@@ -83,6 +103,7 @@ jobs:
           aws rds create-db-snapshot --db-instance-identifier "$BASELINE_DB" --db-snapshot-identifier "$SNAPSHOT_ID"
           aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAPSHOT_ID"
           echo "snapshot_id=$SNAPSHOT_ID" >> "$GITHUB_OUTPUT"
+          echo "created=true" >> "$GITHUB_OUTPUT"
       - name: Check out exact service refs
         uses: actions/checkout@v4
         with:
@@ -131,7 +152,7 @@ jobs:
           curl --fail --retry 30 --retry-all-errors --retry-delay 5 "$PREVIEW_URL/b/health"
           curl --fail --silent --show-error "$PREVIEW_URL/a/items" | jq --exit-status 'length > 0' >/dev/null
       - name: Delete the temporary source snapshot
-        if: always() && steps.snapshot.outputs.snapshot_id != ''
+        if: always() && steps.snapshot.outputs.created == 'true'
         run: aws rds delete-db-snapshot --db-snapshot-identifier "${{ steps.snapshot.outputs.snapshot_id }}"
 
   destroy:
