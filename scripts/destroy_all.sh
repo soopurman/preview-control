@@ -25,7 +25,7 @@ destroy_stack() {
   shift
   if aws cloudformation describe-stacks --stack-name "$stack_name" >/dev/null 2>&1; then
     echo "Destroying $stack_name"
-    npx --yes aws-cdk@2.219.0 destroy "$stack_name" --force "$@"
+    npx --yes aws-cdk@2.1142.0 destroy "$stack_name" --force "$@"
   fi
 }
 

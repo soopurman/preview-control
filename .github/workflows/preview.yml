@@ -114,7 +114,7 @@ jobs:
       - name: Deploy isolated environment
         working-directory: infra
         run: |
-          npx --yes aws-cdk@2.219.0 deploy "${{ needs.resolve.outputs.stack_name }}" --require-approval never \
+          npx --yes aws-cdk@2.1142.0 deploy "${{ needs.resolve.outputs.stack_name }}" --require-approval never \
             -c github_subject=${{ vars.OIDC_SUBJECT }} \
             -c baseline=${{ needs.resolve.outputs.is_baseline }} \
             -c preview_id=${{ needs.resolve.outputs.preview_id }} \
@@ -155,7 +155,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           if aws cloudformation describe-stacks --stack-name "${{ needs.resolve.outputs.stack_name }}" >/dev/null 2>&1; then
-            npx --yes aws-cdk@2.219.0 destroy "${{ needs.resolve.outputs.stack_name }}" --force \
+            npx --yes aws-cdk@2.1142.0 destroy "${{ needs.resolve.outputs.stack_name }}" --force \
               -c github_subject=${{ vars.OIDC_SUBJECT }} \
               -c preview_id=${{ needs.resolve.outputs.preview_id }} \
               -c service_a_image=placeholder.invalid/a:deleted \

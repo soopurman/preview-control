@@ -52,8 +52,8 @@ export PATH="$venv_dir/bin:$PATH"
 export AWS_REGION="$region"
 export AWS_DEFAULT_REGION="$region"
 cd "$infra_dir"
-npx --yes aws-cdk@2.219.0 bootstrap "aws://${account_id}/${region}"
-npx --yes aws-cdk@2.219.0 deploy PreviewPlatform --require-approval never -c github_subject="$oidc_subject"
+npx --yes aws-cdk@2.1142.0 bootstrap "aws://${account_id}/${region}"
+npx --yes aws-cdk@2.1142.0 deploy PreviewPlatform --require-approval never -c github_subject="$oidc_subject"
 
 role_arn=$(aws cloudformation describe-stacks --stack-name PreviewPlatform \
   --query "Stacks[0].Outputs[?OutputKey=='GitHubActionsRoleArn'].OutputValue" --output text)
