@@ -6,6 +6,45 @@ The AWS CDK project and coordinator workflow for ephemeral FastAPI preview envir
 
 `main` maintains `BaselineEnvironment`. Every preview snapshots its baseline PostgreSQL RDS instance immediately before deployment and restores a private, independent RDS instance from it. The source snapshot is deleted after restore and the preview database is deleted with its stack.
 
+## Design at a glance
+
+```text
+catalog-service / orders-service
+  branch push or deletion
+          |
+          v
+GitHub Actions coordinator
+  resolve paired refs -> test -> build -> push ECR -> deploy CDK
+          |
+          v
+AWS shared platform
+  VPC / ECS cluster / ECR / logs / GitHub OIDC role
+          |
+          +-- one application stack per environment
+          |     +-- ALB /a/* -> catalog task
+          |     +-- ALB /b/* -> orders task
+          |     +-- isolated RDS PostgreSQL instance
+          |
+          +-- BaselineEnvironment is the source for preview snapshots
+```
+
+Each environment is independently addressable, has its own database credentials and database
+instance, and can be created or removed without changing another environment. The shared
+platform is deployed once; application stacks are created by the coordinator workflow.
+
+## Feature group convention
+
+Branches named `fg/<name>` represent one cross-service change. For example, `fg/checkout` in
+`catalog-service` resolves to `catalog-service@fg/checkout + orders-service@main`; when the
+matching branch appears in `orders-service`, the same environment is updated to use both feature
+branches. Ordinary branch names are isolated per service (`catalog-login`, `orders-login`) and
+never combine accidentally.
+
+The coordinator always builds both services: a missing group branch resolves to `main`. When a
+branch is deleted, it checks whether the other half of the group still exists and destroys the
+environment only after both branches are gone. This makes branch deletion and merge cleanup safe
+for multi-repository changes.
+
 ## Getting started and prerequisites
 
 The scripts are POSIX-host friendly Bash and have been written to work on current Fedora and
@@ -57,7 +96,7 @@ jq --version
    `us-east-2`, where this project’s RDS engine version has been validated.
 2. Authenticate the AWS CLI before bootstrap. AWS IAM Identity Center/SSO is preferred for a
    human operator (`aws configure sso`, then `aws sso login`); a temporary IAM role/profile also
-   works. The initial bootstrap identity needs permission to create this take-home’s resources,
+   works. The initial bootstrap identity needs permission to create this platform’s resources,
    including the GitHub OIDC provider and deployment role. Do not use a production account.
 3. Authenticate the GitHub CLI with an account that has **admin** access to all three repositories:
    `gh auth login`. For private repositories, a classic token with the `repo` scope is the simplest
@@ -66,7 +105,7 @@ jq --version
    bootstrap. The scripts configure their cross-repository wiring; they intentionally do not
    create repositories or overwrite source history.
 
-## Repeatable setup from a fresh account
+## One-time AWS and GitHub setup
 
 The source code must first exist in three GitHub repositories: this coordinator plus the
 catalog and orders service repositories. From a local clone of this repository, authenticated
@@ -98,22 +137,22 @@ no AWS access key is stored in GitHub.
 
 ## Operating the deployment
 
-Service branch pushes are the normal interface. For a deterministic demo or recovery run, use
+Service branch pushes are the normal interface. For a deterministic operator-triggered or recovery run, use
 the same workflow explicitly and wait through the result:
 
 ```bash
 # Rebuild the long-lived baseline from both main branches.
 bash scripts/request_preview.sh --service a --ref main --control-repo OWNER/preview-control
 
-# Resolve both fg/demo branches into one Preview-fg-demo stack, then wait and verify it.
-bash scripts/request_preview.sh --service a --ref fg/demo --control-repo OWNER/preview-control
+# Resolve both fg/checkout branches into one Preview-fg-checkout stack, then wait and verify it.
+bash scripts/request_preview.sh --service a --ref fg/checkout --control-repo OWNER/preview-control
 
 # Re-check any environment later, including its public health and seeded data.
-bash scripts/check_environment.sh Preview-fg-demo
+bash scripts/check_environment.sh Preview-fg-checkout
 ```
 
 `check_environment.sh` prints the public ALB and Swagger URLs after checking `/a/health`,
 `/b/health`, and the seeded `/items` lists. Individual script help documents all options:
 `bash scripts/bootstrap.sh --help`.
 
-See [CLEANUP.md](CLEANUP.md), [DECISIONS.md](DECISIONS.md), and [DEMO.md](DEMO.md).
+See [CLEANUP.md](CLEANUP.md), [OPERATIONS.md](OPERATIONS.md), and [DECISIONS.md](DECISIONS.md).
